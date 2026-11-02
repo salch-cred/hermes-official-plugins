@@ -196,6 +196,45 @@ class TestCallServiceVerification:
         assert "already in state" in result["note"]
         assert "error" not in result
 
+    def test_state_contradicting_intent_is_not_reported_as_already(self):
+        # Async entity: the verification GET still shows the pre-call state.
+        # The call was accepted; say so instead of claiming a no-op.
+        states = iter([
+            {"entity_id": "light.bedroom", "state": "off"},
+            {"entity_id": "light.bedroom", "state": "off"},
+            {"entity_id": "light.bedroom", "state": "off"},
+            {"entity_id": "light.bedroom", "state": "off"},
+            {"entity_id": "light.bedroom", "state": "off"},
+            {"entity_id": "light.bedroom", "state": "off"},
+        ])
+
+        async def fake_api_json(method, path, timeout, payload=None):
+            if method == "POST":
+                return []
+            return next(states)
+
+        with patch.object(ha_tool, "_api_json", side_effect=fake_api_json):
+            result = asyncio.run(_async_call_service("light", "turn_on", "light.bedroom", None))
+        assert result["success"] is True
+        assert "already in state" not in result["note"]
+        assert "propagation not observed yet" in result["note"]
+
+    def test_state_contradicting_intent_then_propagating_reports_new_state(self):
+        states = iter([
+            {"entity_id": "light.bedroom", "state": "off"},
+            {"entity_id": "light.bedroom", "state": "on"},
+        ])
+
+        async def fake_api_json(method, path, timeout, payload=None):
+            if method == "POST":
+                return []
+            return next(states)
+
+        with patch.object(ha_tool, "_api_json", side_effect=fake_api_json):
+            result = asyncio.run(_async_call_service("light", "turn_on", "light.bedroom", None))
+        assert result["success"] is True
+        assert result["note"] == "light.bedroom is now in state 'on'."
+
     def test_verification_failure_other_than_404_is_not_reported_as_missing(self):
         # A 401/500/timeout on the verification GET says nothing about whether the entity exists.
         async def fake_api_json(method, path, timeout, payload=None):

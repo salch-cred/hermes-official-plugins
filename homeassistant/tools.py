@@ -607,6 +607,15 @@ def _parse_service_response(domain: str, service: str, result: Any, entity_id: O
     return out
 
 
+_INTENDED_STATE = {
+    (domain, "turn_on"): "on"
+    for domain in ("light", "switch", "fan", "input_boolean", "automation", "homeassistant")
+} | {
+    (domain, "turn_off"): "off"
+    for domain in ("light", "switch", "fan", "input_boolean", "automation", "homeassistant")
+}
+
+
 async def _async_call_service(
     domain: str, service: str, entity_id: Optional[str] = None, data: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
@@ -651,7 +660,32 @@ async def _async_call_service(
                 f"of their own domain — call {actual_domain}.{service} instead."
             )
             return out
-        # Exists in the right domain: the state was already as requested — intent satisfied.
+        # For asynchronous entities (MQTT, Zigbee, cloud, ...) the state
+        # update lands after the service call returns, so this read can still
+        # show the state the call was meant to leave. Never call that
+        # "already in state": poll briefly for the intended state, then
+        # report what was actually observed.
+        want = _INTENDED_STATE.get((actual_domain, service)) or _INTENDED_STATE.get((domain, service))
+        if want is not None and state.get("state") != want:
+            for _ in range(5):
+                await asyncio.sleep(0.2)
+                try:
+                    state = await _api_json("GET", f"/api/states/{entity_id}", 10)
+                except Exception:
+                    break
+                if state.get("state") == want:
+                    break
+            out["success"] = True
+            del out["error"]
+            if state.get("state") == want:
+                out["note"] = f"{entity_id} is now in state '{want}'."
+            else:
+                out["note"] = (
+                    f"{entity_id} state is '{state.get('state')}' right after "
+                    f"{domain}.{service} — call accepted, propagation not observed yet."
+                )
+            return out
+        # Exists in the right domain and already in the intended state: intent satisfied.
         out["success"] = True
         del out["error"]
         out["note"] = f"{entity_id} was already in state '{state['state']}' — nothing to change."
