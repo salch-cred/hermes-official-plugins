@@ -81,6 +81,13 @@ class TestStructure:
     def test_is_a_local_environment_subclass(self):
         assert issubclass(BubblewrapEnvironment, LocalEnvironment)
 
+    def test_commands_do_not_see_the_host_filesystem(self, sandbox_root, work_dir):
+        from tools.environments.base import env_uses_host_filesystem
+
+        with _no_session():
+            env = BubblewrapEnvironment(cwd=str(work_dir), timeout=10)
+        assert env_uses_host_filesystem(env) is False
+
     def test_unknown_profile_rejected_at_construction(self, sandbox_root, work_dir):
         with _no_session(), pytest.raises(ValueError) as excinfo:
             BubblewrapEnvironment(cwd=str(work_dir), timeout=10, config=BubblewrapConfig(profile="bogus"))

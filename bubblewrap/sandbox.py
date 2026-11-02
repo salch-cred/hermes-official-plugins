@@ -1192,6 +1192,12 @@ class BubblewrapEnvironment(LocalEnvironment):
     their removal on cleanup.
     """
 
+    # Commands see the sandbox's filesystem (Hermes home hidden, read-only
+    # root, private /tmp), not the host's: core must resolve tools such as
+    # ripgrep through the sandbox instead of handing over a host path the
+    # sandbox cannot see.
+    uses_host_filesystem = False
+
     def __init__(
         self,
         cwd: str = "",
